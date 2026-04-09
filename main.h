@@ -6,10 +6,8 @@
 #include <map>
 #include "score_library.h"
 
-struct Note;
-
-int parse_note(std::string note,int pitch);
-void load_melody(std::vector<std::string> notes, std::vector<float> beats);
-void set_buzzer_freq(uint pin, uint freq);
 int get_freq(std::string note_name, int octave);
-void play_melody(uint buzzer_pin, uint led_pin, const std::vector<Note> &melody_to_play, uint tempo_ms);
+int parse_note(std::string note);
+void set_buzzer_freq(uint pin, uint freq);
+void play_melody(uint BUZZER_PIN, uint LED_PIN, const std::vector<Note> &melody_to_play, uint tempo_ms);
+void play_song_by_name(std::string name, uint BUZZER_PIN, uint LED_PIN);

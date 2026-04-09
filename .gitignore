@@ -1,5 +1,11 @@
+# CMake 產物
 build/
+.cache/
+CMakeFiles/
+CMakeCache.txt
+
+# VS Code 設定
+.vscode/
+
+# macOS 系統檔
 .DS_Store
-*.hex
-*.bin
-*.elf

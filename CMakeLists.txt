@@ -14,9 +14,10 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 # 建立執行檔
-add_executable(Multi_Part_Player 
+add_executable(Multi_Part_Player
     main.cpp
     main.h
+    score_library.h
 )
 
 target_include_directories(Multi_Part_Player PUBLIC lib)

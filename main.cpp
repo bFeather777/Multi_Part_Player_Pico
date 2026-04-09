@@ -107,15 +107,22 @@ void play_melody(uint BUZZER_PIN, uint LED_PIN, const std::vector<Note> &melody_
         {
             gpio_put(LED_PIN, 1);
             set_buzzer_freq(BUZZER_PIN, parse_note(note.pitch));
+            // 3. 持續時間
+            sleep_ms(note.beats * tempo_ms*0.95);
+
+            gpio_put(LED_PIN, 0);
+            set_buzzer_freq(BUZZER_PIN, 0);
+            sleep_ms(note.beats * tempo_ms*0.05);
         }
         else
         {
             gpio_put(LED_PIN, 0);
             set_buzzer_freq(BUZZER_PIN, 0);
+            // 3. 持續時間
+            sleep_ms(note.beats * tempo_ms);
         }
 
-        // 3. 持續時間
-        sleep_ms(note.beats * tempo_ms);
+
 
         // 4. 熄滅 LED 並停止聲音
         gpio_put(LED_PIN, 1);
@@ -133,12 +140,12 @@ void play_song_by_name(std::string name, uint BUZZER_PIN, uint LED_PIN) {
             for (const auto& note : song.notes) {
                  if (note.pitch != "R")
                  {
-                    gpio_put(LED_PIN, 0);
+                    gpio_put(LED_PIN, 1);
                     set_buzzer_freq(BUZZER_PIN, parse_note(note.pitch));
                  }
                  else
                  {
-                    gpio_put(LED_PIN, 1);
+                    gpio_put(LED_PIN, 0);
                     set_buzzer_freq(BUZZER_PIN, 0);
                  }
 
@@ -146,7 +153,7 @@ void play_song_by_name(std::string name, uint BUZZER_PIN, uint LED_PIN) {
                  sleep_ms(note.beats * TEMPO);
 
                  // 4. 熄滅 LED 並停止聲音
-                 gpio_put(LED_PIN, 1);
+                 gpio_put(LED_PIN, 0);
                  set_buzzer_freq(BUZZER_PIN, 0);
 
                  // 音符間的短暫停頓
@@ -178,7 +185,7 @@ int main(){
     printf("要開始播音樂了嗎？\r\n");
     //play_song_by_name("totoro_main", BUZZER_PIN, LED_PIN);
     //play_song_by_name("disney_star_T1", BUZZER_PIN, LED_PIN);
-    play_song_by_name("disney_star_T2", BUZZER_PIN, LED_PIN);
+    play_song_by_name("joy_to_the_world_T1", BUZZER_PIN, LED_PIN);
 
     return 0;
 }

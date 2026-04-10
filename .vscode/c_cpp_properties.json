@@ -9,9 +9,8 @@
             "cStandard": "c17",
             "cppStandard": "c++17",
             "compilerPath": "/opt/homebrew/bin/arm-none-eabi-g++",
-            "intelliSenseMode": "macos-gcc-arm",
-            "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
-            "C_Cpp.intelliSenseEngine": "default"
+            "intelliSenseMode": "macos-gcc-arm"
+
         }
     ],
     "version": 4

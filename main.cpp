@@ -2,9 +2,11 @@
 #include "hardware/pwm.h"
 #include <cmath>
 #include <vector>
-#include <string>
+#include <string.h>
 #include <map>
 #include "score_library.h"
+#include <stdio.h>
+#include "hardware/uart.h"
 
 
 //hardware ID
@@ -17,6 +19,11 @@ int int_hardware_ID;
     const uint LED_PIN= 20;
 // 定義定址腳位
     const uint ADDR_PINS[] = {2, 3, 4};
+    // 定義 UART 設定
+#define UART_ID uart0
+#define BAUD_RATE 9600
+#define UART_TX_PIN 0
+#define UART_RX_PIN 1
 
 // 定義節拍單位 (ms) 目前無法正確讀取，需修正
 #define TEMPO 700 // 一拍 500ms
@@ -113,44 +120,44 @@ void set_buzzer_freq(uint pin, uint freq)
 
 
 
-// 播放旋律的通用函式
-void play_melody(uint BUZZER_PIN, uint LED_PIN, const std::vector<Note> &melody_to_play, uint tempo_ms)
-{
-    for (const auto &note : melody_to_play)
-    {
-        // 1. 點亮 LED (3V3 接法，給 0 亮)
-        //gpio_put(LED_PIN, 0);
+// // 播放旋律的通用函式
+// void play_melody(uint BUZZER_PIN, uint LED_PIN, const std::vector<Note> &melody_to_play, uint tempo_ms)
+// {
+//     for (const auto &note : melody_to_play)
+//     {
+//         // 1. 點亮 LED (3V3 接法，給 0 亮)
+//         //gpio_put(LED_PIN, 0);
 
-        // 2. 播放音符 (如果頻率為 0 則不發聲)
-        if (note.pitch != "R")
-        {
-            gpio_put(LED_PIN, 1);
-            set_buzzer_freq(BUZZER_PIN, parse_note(note.pitch));
-            // 3. 持續時間
-            sleep_ms(note.beats * tempo_ms*0.95);
+//         // 2. 播放音符 (如果頻率為 0 則不發聲)
+//         if (note.pitch != "R")
+//         {
+//             gpio_put(LED_PIN, 1);
+//             set_buzzer_freq(BUZZER_PIN, parse_note(note.pitch));
+//             // 3. 持續時間
+//             sleep_ms(note.beats * tempo_ms*0.95);
 
-            gpio_put(LED_PIN, 0);
-            set_buzzer_freq(BUZZER_PIN, 0);
-            sleep_ms(note.beats * tempo_ms*0.05);
-        }
-        else
-        {
-            gpio_put(LED_PIN, 0);
-            set_buzzer_freq(BUZZER_PIN, 0);
-            // 3. 持續時間
-            sleep_ms(note.beats * tempo_ms);
-        }
+//             gpio_put(LED_PIN, 0);
+//             set_buzzer_freq(BUZZER_PIN, 0);
+//             sleep_ms(note.beats * tempo_ms*0.05);
+//         }
+//         else
+//         {
+//             gpio_put(LED_PIN, 0);
+//             set_buzzer_freq(BUZZER_PIN, 0);
+//             // 3. 持續時間
+//             sleep_ms(note.beats * tempo_ms);
+//         }
 
 
 
-        // 4. 熄滅 LED 並停止聲音
-        gpio_put(LED_PIN, 1);
-        set_buzzer_freq(BUZZER_PIN, 0);
+//         // 4. 熄滅 LED 並停止聲音
+//         gpio_put(LED_PIN, 1);
+//         set_buzzer_freq(BUZZER_PIN, 0);
 
-        // 音符間的短暫停頓
-        sleep_ms(50);
-    }
-}
+//         // 音符間的短暫停頓
+//         sleep_ms(50);
+//     }
+// }
 
 // 播放核心
 void play_song_by_name(std::string name, uint BUZZER_PIN, uint LED_PIN) {
@@ -190,7 +197,7 @@ int get_hardware_id() {
         gpio_init(ADDR_PINS[i]);
         gpio_set_dir(ADDR_PINS[i], GPIO_IN); //這邊一定要用GPIO_IN，否則會燒掉pico的接腳
         
-        // 建議用 Pull-Up，這樣沒接線預設是 High (1)，接 GND 變 Low (0)
+        // Pull-Up設定，沒接線預設是 High (1)，接 GND 變 Low (0)
         gpio_pull_up(ADDR_PINS[i]); 
         
         // 讀取並組合位元 (這裡假設接 GND 為 0)
@@ -220,6 +227,18 @@ int main(){
     // 4. 設定 PWM 功能 (蜂鳴器腳位要切換成 PWM 模式)
     gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
 
+    //stdio_init_all();
+
+    // 5. 初始化 UART
+    uart_init(UART_ID, BAUD_RATE);
+    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+
+    printf("Pico 接收端已就緒，等待 Arduino 訊號...\n");
+
+    char buffer[64];
+    int idx = 0;
+
 
     int_hardware_ID = get_hardware_id();
 
@@ -233,17 +252,53 @@ int main(){
     sleep_ms(2000);
     //play_song_by_name("totoro_main", BUZZER_PIN, LED_PIN);
     //play_song_by_name("disney_star_T1", BUZZER_PIN, LED_PIN);
-    while(1)
-    {
-        switch(current_State)
+        while(1)
         {
-            case STATE_IDLE:
+            switch(current_State)
+            {
+                case STATE_IDLE:
 
-                printf("現在在%d\r\n",static_cast<int>(current_State));
-                sleep_ms(2000);
-                printf("要去STATE_PLAY啦～");
-                sleep_ms(2000);
-                current_State = STATE_PLAY;
+                    printf("現在在%d\r\n",static_cast<int>(current_State));
+                    sleep_ms(2000);
+
+                    while (true) {
+                    // 檢查 UART 是否有資料可讀
+                            if (uart_is_readable(UART_ID)) {
+                                char c = uart_getc(UART_ID);
+
+                                // 判斷是否為換行符號 (指令結束)
+                                if (c == '\n' || c == '\r') {
+                                    if (idx > 0) {
+                                        buffer[idx] = '\0'; // 結束字串
+                                        printf(">>> Pico 成功接收指令: [%s]\n", buffer);
+                                        int current_idx = idx; 
+                                        idx = 0;
+
+                                        if(strcmp(buffer, "PLAY_JOY") == 0)
+                                        {
+                                            printf("要去STATE_PLAY啦～\r\n");
+                                            memset(buffer, 0, sizeof(buffer)); 
+                                            sleep_ms(2000);
+                                            current_State = STATE_PLAY;
+                                            
+                                            
+
+                                        }
+
+                                        
+                                        break;
+                                        
+                                    }
+                                } else {
+                                    if (idx < sizeof(buffer) - 1) {
+                                        buffer[idx++] = c;
+                                    }
+                                }
+                            }
+                     }
+
+
+               
                 break;
 
             case STATE_PLAY:

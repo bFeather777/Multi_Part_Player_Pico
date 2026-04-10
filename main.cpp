@@ -6,17 +6,36 @@
 #include <map>
 #include "score_library.h"
 
+
+//hardware ID
+int int_hardware_ID;
+
 // 訂定接腳
 // 蜂鳴器
     const uint BUZZER_PIN = 16;
-// LED 無效
+// LED (但經實驗無效？）
     const uint LED_PIN= 20;
+// 定義定址腳位
+    const uint ADDR_PINS[] = {2, 3, 4};
 
 // 定義節拍單位 (ms) 目前無法正確讀取，需修正
 #define TEMPO 700 // 一拍 500ms
 
 // 使用 vector 替代固定陣列
 std::vector<Note> current_melody;
+
+enum State{
+
+    STATE_IDLE,
+    STATE_PLAY,
+    STATE_STOP,
+
+
+    STATE_MAX,
+
+
+
+};
 
 /**
  * 計算音符頻率
@@ -164,7 +183,31 @@ void play_song_by_name(std::string name, uint BUZZER_PIN, uint LED_PIN) {
     }
 }
 
+//取得pico的硬體定址
+int get_hardware_id() {
+    int id = 0;
+    for (int i = 0; i < 3; i++) {
+        gpio_init(ADDR_PINS[i]);
+        gpio_set_dir(ADDR_PINS[i], GPIO_IN); //這邊一定要用GPIO_IN，否則會燒掉pico的接腳
+        
+        // 建議用 Pull-Up，這樣沒接線預設是 High (1)，接 GND 變 Low (0)
+        gpio_pull_up(ADDR_PINS[i]); 
+        
+        // 讀取並組合位元 (這裡假設接 GND 為 0)
+        if (!gpio_get(ADDR_PINS[i])) {
+            id |= (1 << i); //C++允許使用者繞過十進位的包裝，直接操作記憶體中的位元運算
+        } else {
+           // 如果讀到 Low，代表該位元為 0 
+        }
+    }
+    return id;
+}
+
 int main(){
+    
+    int int_repeat_times = 2;
+    int int_repeat_count = 0;
+    State current_State = STATE_IDLE;
     stdio_init_all();
 
     // 2. 初始化 GPIO
@@ -178,14 +221,75 @@ int main(){
     gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
 
 
+    int_hardware_ID = get_hardware_id();
+
     sleep_ms(5000);
     printf("LED要亮起來了唷\r\n");
     gpio_put(LED_PIN, 1);
     sleep_ms(2000);
+    printf("這一個pico的hard id是:%d\r\n",int_hardware_ID);
+    sleep_ms(2000);
     printf("要開始播音樂了嗎？\r\n");
+    sleep_ms(2000);
     //play_song_by_name("totoro_main", BUZZER_PIN, LED_PIN);
     //play_song_by_name("disney_star_T1", BUZZER_PIN, LED_PIN);
-    play_song_by_name("joy_to_the_world_T1", BUZZER_PIN, LED_PIN);
+    while(1)
+    {
+        switch(current_State)
+        {
+            case STATE_IDLE:
+
+                printf("現在在%d\r\n",static_cast<int>(current_State));
+                sleep_ms(2000);
+                printf("要去STATE_PLAY啦～");
+                sleep_ms(2000);
+                current_State = STATE_PLAY;
+                break;
+
+            case STATE_PLAY:
+
+
+                play_song_by_name("joy_to_the_world_B1", BUZZER_PIN, LED_PIN);
+
+                printf("現在在%d\r\n",static_cast<int>(current_State));
+                int_repeat_count++;
+                sleep_ms(2000);
+                printf("要去STATE_STOP啦～\r\n");
+                sleep_ms(2000);
+                current_State = STATE_STOP;
+                
+
+                break;
+
+            case STATE_STOP:
+
+                if(int_repeat_count<int_repeat_times)
+                {
+                printf("現在在%d\r\n",static_cast<int>(current_State));
+                sleep_ms(2000);
+                printf("要去STATE_IDLE啦～\r\n");
+                sleep_ms(2000);
+                current_State = STATE_IDLE;
+                }
+                else
+                {
+                    sleep_ms(2000);
+                    printf("已達到重播次數啦～再見囉\r\n");
+                    return 0;
+
+                }
+
+            break;
+
+            default:
+
+            printf("程式錯誤\r\n");
+            break;
+
+
+        }
+   
+    }
 
     return 0;
 }

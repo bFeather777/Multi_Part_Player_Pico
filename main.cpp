@@ -13,7 +13,21 @@
 int int_hardware_ID;
 
 //目前的歌曲
-std::string current_song;
+int current_song;
+enum Song_ID 
+{
+    //與Arduino Nano中的順序相同，只是沒有play
+    IDLE = 0,
+    YOUR_NAME_ENGRAVED_HEREIN,
+    A_UNIQUE_FLOWER_IN_THE_WORLD,
+    LETS_NOT_LEAVE_OUR_YOUTH_BLANK,
+    TEST_HAND,
+
+    Song_ID_MAX,
+
+
+
+};
 
 // 訂定接腳
 // 蜂鳴器
@@ -24,10 +38,14 @@ std::string current_song;
 // 定義硬體定址腳位
 const uint ADDR_PINS[] = {7, 8, 9};
     // 定義 UART 設定
-#define UART_ID uart0
+#define UART0_FROM_ARDUINO uart0
+
+
+
+#define UART1_COM_PICO uart1
 #define BAUD_RATE 9600
-#define UART_TX_PIN 12  // 實體 Pin 16，負責發送給 Nano
-#define UART_RX_PIN 13  // 實體 Pin 17，負責接收來自 Nano
+// #define UART0_TX_PIN 12  // 實體 Pin 16，負責發送給 Nano
+// #define UART0_RX_PIN 13  // 實體 Pin 17，負責接收來自 Nano
 
 // 定義節拍單位 (ms) 目前無法正確讀取，需修正
 #define TEMPO // 一拍 500ms
@@ -38,7 +56,10 @@ const uint ADDR_PINS[] = {7, 8, 9};
 enum State{
 
     STATE_IDLE,
+    STATE_CHECK,
+    STATE_READY,
     STATE_PLAY,
+    STATE_TEST_HAND,
     STATE_STOP,
 
 
@@ -220,8 +241,8 @@ int get_hardware_id() {
 
 int main(){
     
-    int int_repeat_times = 2;
-    int int_repeat_count = 0;
+    // int int_repeat_times = 2;
+    // int int_repeat_count = 0;
     State current_State = STATE_IDLE;
 
     
@@ -253,6 +274,10 @@ int main(){
             //先作設定，接下來的switch會再修正
             uint BUZZER_PIN = 16;
             uint LED_PIN= 20;
+            uint UART0_TX_PIN = 12;
+            uint UART0_RX_PIN = 13;
+            uint UART1_TX_PIN = 0;
+            uint UART1_RX_PIN = 1;
 
             switch(int_hardware_ID)
             {
@@ -265,6 +290,10 @@ int main(){
                     // LED 
                     LED_PIN= 20;
 
+                    UART0_TX_PIN = 12;  // 實體 Pin 16，負責發送給 Nano
+                    UART0_RX_PIN = 13;  // 實體 Pin 17  負責接收自 Nano
+                    UART1_TX_PIN = 4;
+                    UART1_RX_PIN = 5;
                 break;
 
                 case 4:
@@ -274,6 +303,11 @@ int main(){
                     BUZZER_PIN = 0;
                     // LED 
                     LED_PIN= 4;
+
+                    UART0_TX_PIN = 16;  // 實體 Pin 21，負責發送給 Nano
+                    UART0_RX_PIN = 17;  // 實體 Pin 22，負責接收自 Nano
+                    UART1_TX_PIN = 4;
+                    UART1_RX_PIN = 5;
 
                 break;
 
@@ -295,10 +329,14 @@ int main(){
 
             
 
-            // 5. 初始化 UART
-            uart_init(UART_ID, BAUD_RATE);
-            gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
-            gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+            // 5. 初始化 UART0 
+            uart_init(UART0_FROM_ARDUINO, BAUD_RATE);
+            gpio_set_function(UART0_TX_PIN, GPIO_FUNC_UART);
+            gpio_set_function(UART0_RX_PIN, GPIO_FUNC_UART);
+
+            uart_init(UART1_COM_PICO, BAUD_RATE);
+            gpio_set_function(UART1_TX_PIN, GPIO_FUNC_UART);
+            gpio_set_function(UART1_RX_PIN, GPIO_FUNC_UART);
 
 
              //sleep_ms(2000);
@@ -306,8 +344,10 @@ int main(){
 
             //printf("Pico 接收端已就緒，等待 Arduino 訊號...\n");
 
-            char buffer[128];
+            char temp_buffer[128];
+            char temp_buffer2[10];
             int idx = 0;
+            int idx2 = 0;
 
               sleep_ms(2000);
             
@@ -346,11 +386,31 @@ int main(){
 
                     break;
 
+                case 4:
+                    play_song_by_name("joy_to_the_world_B2", BUZZER_PIN, LED_PIN);
+                    break;
+
+                case 5:
+                    play_song_by_name("joy_to_the_world_B1", BUZZER_PIN, LED_PIN);
+                    break;
+
+                case 6:
+                    play_song_by_name("joy_to_the_world_T1", BUZZER_PIN, LED_PIN);
+                    break;
+
                 default:
                     play_song_by_name("mario_die", BUZZER_PIN, LED_PIN);
 
                     break;
             }
+
+            bool bReady_0=false;
+            bool bReady_1=false;
+            bool bReady_2=false;
+            bool bReady_3=false;
+            bool bReady_4=false;
+            bool bReady_5=false;
+            bool bReady_6=false;
 
             //play_song_by_name("totoro_main", BUZZER_PIN, LED_PIN);
             //play_song_by_name("disney_star_T1", BUZZER_PIN, LED_PIN);
@@ -365,35 +425,54 @@ int main(){
 
                                 while (true) {
                                         // 檢查 UART 是否有資料可讀
-                                        if (uart_is_readable(UART_ID)) {
-                                            char c = uart_getc(UART_ID);
+                                        if (uart_is_readable(UART0_FROM_ARDUINO
+                                    )) {
+                                            char c = uart_getc(UART0_FROM_ARDUINO
+                                        );
                                             //下面這一行可以監控由Arduino Nano送來的編號
-                                            //printf("現在的buffer是%s\r\n",buffer); 
+                                            //printf("現在384的buffer是%s\r\n",buffer); 
                                             // 判斷是否為換行符號 (表示指令結束)
                                             if (c == '\n' || c == '\r') {
                                                 if (idx > 0) {
-                                                    buffer[idx] = '\0'; // 結束字串
+                                                    temp_buffer[idx] = '\0'; // 結束字串
                                                     //printf(">>> Pico 成功接收指令: [%s]\n", buffer);
                                                     int current_idx = idx; 
                                                     idx = 0;
                                                     //下面這一行可以監控由Arduino Nano送來的編號
                                                     //printf("迴圈裡面的buffer是%s\r\n",buffer);       
-                                                    if(strcmp(buffer, "PLAY_A_UNIQUE_FLOWER_IN_THE_WORLD") == 0)
+                                                    if(strcmp(temp_buffer, "PLAY_A_UNIQUE_FLOWER_IN_THE_WORLD") == 0)
                                                     {
-                                                        printf("要去STATE_PLAY啦～\r\n");
-                                                        memset(buffer, 0, sizeof(buffer)); 
+                                                        //printf("要去STATE_PLAY啦～\r\n");
+                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
                                                         sleep_ms(2000);
-                                                        current_song = "A_UNIQUE_FLOWER_IN_THE_WORLD";
+                                                        current_song = A_UNIQUE_FLOWER_IN_THE_WORLD;
                                                         current_State = STATE_PLAY;
                                                     }
-                                                    else if (strcmp(buffer, "PLAY_YOUR_NAME_ENGRAVED_HEREIN") == 0)
+                                                    else if (strcmp(temp_buffer, "PLAY_YOUR_NAME_ENGRAVED_HEREIN") == 0)
                                                     {
                                                         /* code */
-                                                        printf("要去STATE_PLAY啦～\r\n");
-                                                        memset(buffer, 0, sizeof(buffer)); 
+                                                        //printf("要去STATE_PLAY啦～\r\n");
+                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
                                                         sleep_ms(2000);
-                                                        current_song = "YOUR_NAME_ENGRAVED_HEREIN";
+                                                        current_song = YOUR_NAME_ENGRAVED_HEREIN;
                                                         current_State = STATE_PLAY;
+                                                    }
+                                                    else if (strcmp(temp_buffer, "PLAY_LETS_NOT_LEAVE_OUR_YOUTH_BLANK") == 0)
+                                                    {
+                                                        /* code */
+                                                        //printf("要去STATE_PLAY啦～\r\n");
+                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
+                                                        sleep_ms(2000);
+                                                        current_song = LETS_NOT_LEAVE_OUR_YOUTH_BLANK;
+                                                        current_State = STATE_PLAY;
+                                                    }
+                                                     else if (strcmp(temp_buffer, "TEST_HAND") == 0)
+                                                    {
+                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
+                                                        sleep_ms(2000);
+                                                        current_song = TEST_HAND;
+                                                        current_State = STATE_TEST_HAND;
+
                                                     }
                                                     
                                                     idx = 0;
@@ -402,8 +481,8 @@ int main(){
                                                     
                                                 }
                                             } else {
-                                                if (idx < sizeof(buffer) - 1) {
-                                                    buffer[idx++] = c;
+                                                if (idx < sizeof(temp_buffer) - 1) {
+                                                    temp_buffer[idx++] = c;
                                                 }
                                             }
                                         }
@@ -413,35 +492,200 @@ int main(){
                         
                             break;
 
+                         case STATE_TEST_HAND:
+
+                            
+
+                            //從pico6開始
+                            if(bReady_6 == false)
+                            {
+                                bReady_6 = true;
+                                printf("我是6號\r\n");
+                                uart_puts(UART1_COM_PICO, "PICO6 OK\n"); //輸出
+                                printf("我送出訊號囉！\r\n");
+                                printf("要去STATE_READY了，再會～\r\n");
+                                //current_State = STATE_READY;
+                            }
+
+                            while(1){      // 檢查 UART 是否有資料可讀
+                                    if (uart_is_readable(UART1_COM_PICO)) 
+                                    {
+                                            char c2 = uart_getc(UART1_COM_PICO);
+                                            printf("現在514的buffer是%s\r\n",temp_buffer2); 
+                                            
+                                            if (c2 == '\n' || c2 == '\r') {
+                                                if (idx2 > 0) {
+                                                    temp_buffer2[idx2] = '\0'; // 結束字串
+                                                    
+                                                    int current_idx2 = idx2; 
+                                                    idx2 = 0;     
+                                                    if(strcmp(temp_buffer2, "PICO6 OK") == 0 )
+                                                    {
+                                                        bReady_5 = true;
+                                                        printf("我是5號\r\n");
+                                                        uart_puts(UART1_COM_PICO, "PICO5 OK\n"); //輸出
+                                                        printf("我送出訊號囉！\r\n");
+                                                        printf("要去STATE_READY了，再會～\r\n");
+                                                        //current_State = STATE_READY;
+
+                                                    }
+                                                    else if(strcmp(temp_buffer2, "PICO5 OK") == 0)
+                                                    {
+                                                         bReady_4 = true;
+                                                        printf("我是4號\r\n");
+                                                        uart_puts(UART1_COM_PICO, "PICO4 OK\n"); //輸出
+                                                        printf("我送出訊號囉！\r\n");
+                                                        printf("要去STATE_READY了，再會～\r\n");
+                                                        //current_State = STATE_READY;
+
+                                                    }
+                                                    else if(strcmp(temp_buffer2, "PICO4 OK") == 0)
+                                                    {
+                                                        bReady_3 = true;
+                                                        printf("我是3號\r\n");
+                                                        uart_puts(UART1_COM_PICO, "PICO3 OK\n"); //輸出
+                                                        printf("我送出訊號囉！\r\n");
+                                                        printf("要去STATE_READY了，再會～\r\n");
+                                                        //current_State = STATE_READY;
+
+                                                    }
+                                                    else if(strcmp(temp_buffer2, "PICO3 OK") == 0)
+                                                    {
+                                                        bReady_2 = true;
+                                                        printf("我是2號\r\n");
+                                                        uart_puts(UART1_COM_PICO, "PICO2 OK\n"); //輸出
+                                                        printf("我送出訊號囉！\r\n");
+                                                        printf("要去STATE_READY了，再會～\r\n");
+                                                        //current_State = STATE_READY;
+
+                                                    }
+                                                    else if(strcmp(temp_buffer2, "PICO2 OK") == 0)
+                                                    {
+                                                        bReady_1 = true;
+                                                        printf("我是1號\r\n");
+                                                        uart_puts(UART0_FROM_ARDUINO, "PICO1 OK\n"); //輸出
+                                                        printf("我送出訊號給arduino囉！\r\n");
+                                                        printf("要去STATE_READY了，再會～\r\n");
+                                                        //current_State = STATE_READY;
+
+                                                    }
+                                                }
+                                                    idx2 = 0; // 不管比對成功與否，收到換行，index就要歸零
+                                                    
+                                                    //break;
+                                                    
+                                            }
+                                            
+                                            else {
+                                                if (idx2 < sizeof(temp_buffer2) - 1) {
+                                                    temp_buffer2[idx2++] = c2;
+                                                }
+                                            }
+
+                                    }
+                                }
+
+                            //sleep_ms(2000);
+                                
+
+                            break;
+
+                            
+                        case STATE_READY:
+
+                            current_State = STATE_PLAY;
+
+                            break;
+
                         case STATE_PLAY:
 
                                         
                             //play_song_by_name("joy_to_the_world_B1", BUZZER_PIN, LED_PIN);
 
-                            printf("現在在%d\r\n",static_cast<int>(current_State));
-                             switch(int_hardware_ID)
+                            //printf("現在在%d\r\n",static_cast<int>(current_State));
+                            switch(current_song)
                             {
-                                case 0:
-                                    //play_song_by_name("disney_star_T1", BUZZER_PIN, LED_PIN);
-                                    play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T1", BUZZER_PIN, LED_PIN);
+                                case A_UNIQUE_FLOWER_IN_THE_WORLD: //點播 世界上唯一的花
+                                    switch(int_hardware_ID)
+                                    {
+                                        case 0:
+                                        case 6:
+
+                                            play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T1", BUZZER_PIN, LED_PIN);
+                                            
+                                            break;
+
+                                        case 1:
+                                        case 2:
+                                        case 4:
+                                            
+                                            play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T2", BUZZER_PIN, LED_PIN);
+
+                                            break;
+
+                                       
+
+                                            play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T2", BUZZER_PIN, LED_PIN);
+
+                                        break;
+
+
+
+                                        case 3:
+                                        case 5:
+
+                                            play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_B1", BUZZER_PIN, LED_PIN);
+
+                                        break;
+
+
+
+                                    }
+
+
+                                    break;
+                            
+                                case YOUR_NAME_ENGRAVED_HEREIN: //點播 刻在我心底的名字
 
                                     break;
                                 
-                                case 1:
-                                    //play_song_by_name("disney_star_T2", BUZZER_PIN, LED_PIN);
-                                    play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T2", BUZZER_PIN, LED_PIN);
+                                case LETS_NOT_LEAVE_OUR_YOUTH_BLANK: //點播 青春不要留白
 
-                                    break;
+                                    switch(int_hardware_ID)
+                                    {
 
-                                case 2:
-                                    //play_song_by_name("disney_star_B1", BUZZER_PIN, LED_PIN);
-                                    play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T2", BUZZER_PIN, LED_PIN);
+                                        case 0:
 
-                                    break;
+                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_01", BUZZER_PIN, LED_PIN);
+                                            
+                                            break;
 
-                                case 3:
-                                    //play_song_by_name("disney_star_B2", BUZZER_PIN, LED_PIN);
-                                    play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_B1", BUZZER_PIN, LED_PIN);
+                                        case 1:
+                                            
+                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_02", BUZZER_PIN, LED_PIN);
+
+                                            break;
+
+                                        case 2:
+
+                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_03", BUZZER_PIN, LED_PIN);
+
+                                        break;
+
+
+
+                                        case 3:
+
+                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_04", BUZZER_PIN, LED_PIN);
+
+                                        break;
+
+
+
+                                    }
+
+
+
 
                                     break;
 
@@ -452,22 +696,27 @@ int main(){
                             }
                             
                             //sleep_ms(2000);
-                            printf("要去STATE_STOP啦～\r\n");
+                            //printf("要去STATE_STOP啦～\r\n");
                             //sleep_ms(2000);
                             current_State = STATE_STOP;
                             
 
                             break;
 
+                       
                         case STATE_STOP:
 
+                            sleep_ms(2000);
+                            printf("我是6號\r\n");
+                            printf("要取消ready狀態囉\r\n");
+                            bReady_6 = false;
                             // if(int_repeat_count<int_repeat_times)
                             // {
-                                printf("現在在%d\r\n",static_cast<int>(current_State));
+                                //printf("現在在%d\r\n",static_cast<int>(current_State));
                                 //sleep_ms(2000);
-                                printf("要去STATE_IDLE啦～\r\n");
+                                //printf("要去STATE_IDLE啦～\r\n");
                                 //sleep_ms(2000);
-                                memset(buffer, 0, sizeof(buffer)); // 將 buffer 全部填 0
+                                memset(temp_buffer, 0, sizeof(temp_buffer)); // 將 buffer 全部填 0
                                 idx = 0;                          // 重置索引指標
                                 current_State = STATE_IDLE;
                             // }
@@ -483,7 +732,7 @@ int main(){
 
                         default:
 
-                        printf("程式錯誤\r\n");
+                            printf("程式錯誤\r\n");
                         break;
 
 

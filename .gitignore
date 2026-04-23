@@ -9,3 +9,6 @@ CMakeCache.txt
 
 # macOS 系統檔
 .DS_Store
+
+# 樂譜
+score_library.h

@@ -22,16 +22,21 @@ add_executable(Multi_Part_Player
 
 target_include_directories(Multi_Part_Player PUBLIC lib)
 
+# 編譯偵測死碼
+target_compile_options(Multi_Part_Player PRIVATE
+    -Wall #大部分常見警告
+    -Wunreachable-code
+)
+
 # 連結標準函式庫 (這樣 #include "pico/stdlib.h" 才不會報錯)
 target_link_libraries(Multi_Part_Player
     pico_stdlib 
     hardware_spi 
     hardware_gpio 
     hardware_pwm
-
 )
 
-# 你的專案名稱如果是 Multi_Part_Player
+# 專案名稱：Multi_Part_Player
 pico_enable_stdio_usb(Multi_Part_Player 1)
 pico_enable_stdio_uart(Multi_Part_Player 0)
 

@@ -71,4 +71,33 @@ RP2350 雙核運算、PWM 音頻生成、GPIO/I2C 多機同步。
 1.加入joy to the world歌曲的低音三部。
 2.調整狀態機，正式透過pico0傳送演奏終止訊號給Arduino，形成流程的迴圈。
 
+# 26-04-23-Thu
+1.加入「刻在我心底的名字」樂譜
+
+# 26-04-28-Thu
+1.預計加入硬體的車輛控制，先嘗試針對特定的pico開啟亮燈
+
+# 26-05-02-Sat
+1.嘗試分開寫藍牙的功能，可以實現基礎的功能，但是無法作進一步的字串傳輸，藍牙相關的編譯一直有少檔案
+2.改成用python的部分引入相關函式庫寫藍牙，犧牲掉pico0的播放音樂，把它灌入藍牙的程式。但是成功地做出用藍牙傳送字串給pico0，再發送字串給arduino，實現其他pico播放音樂。
+3.需再整理狀態機，因為pico0的UART 0 現在沒有這個程式理了
+
+# 26-06-09-Tue
+1.死碼清理：
+  加入 -Wall 和 -Wunreachable-code 編譯警告
+  修正 DEBUG_PRINT 格式符號錯誤（%d / %s 混用）
+  刪除無用變數：current_idx、current_idx2、bReady_0 到 bReady_5
+  修正 idx、idx2 型別不一致（int 改 size_t）
+  修正 disney_star_B1 死碼，補上正確的 case 分配
+  修正 A_UNIQUE_FLOWER_IN_THE_WORLD 重複死碼
+2.main() 拆函式：
+  新增 init_addr_pins()：初始化定址腳位並讀取 Hardware ID
+  新增 init_hardware()：初始化 GPIO 和 UART
+  新增 init_pins()：根據 Hardware ID 決定腳位
+  新增 play_startup_song()：開機音樂
+  新增 handle_idle()、handle_play()、handle_stop()：狀態處理封裝
+3.其他：
+  補上 disney 和 flower 各 ID 的聲部分配錯誤
+  清掉大量無意義的空白行和被註解的 printf
+
 # Hardware

@@ -7,6 +7,8 @@
 #include "score_library.h"
 #include <stdio.h>
 #include "hardware/uart.h"
+#include "hardware/watchdog.h"
+//#include "pico/cyw43_arch.h"// 藍牙相關
 
 #define DEBUG_PRINT(fmt, ...) \
     printf("[LINE %d] " fmt "\r\n", __LINE__, ##__VA_ARGS__)   //除錯用的函數，會印出該行
@@ -24,6 +26,7 @@ enum Song_ID
     A_UNIQUE_FLOWER_IN_THE_WORLD,
     LETS_NOT_LEAVE_OUR_YOUTH_BLANK,
     DISNEY_OPENING,
+    DETECTIVE_CONAN,
     TEST_HAND,
     DORAEMON,
 
@@ -86,6 +89,13 @@ std::vector<std::string> STATE_NAME={
 
 
 };
+
+uint BUZZER_PIN   = 16;
+uint LED_PIN      = 20;
+uint UART0_TX_PIN = 12;
+uint UART0_RX_PIN = 13;
+uint UART1_TX_PIN = 0;
+uint UART1_RX_PIN = 1;
 
 /**
  * 計算音符頻率
@@ -246,7 +256,7 @@ void play_song_by_name(std::string name, uint BUZZER_PIN, uint LED_PIN) {
 
 //取得pico的硬體定址
 int get_hardware_id() {
-    int id = 0;
+    
 
     bool bit0 = gpio_get(ADDR_PINS[0]); //7
     bool bit1 = gpio_get(ADDR_PINS[1]); //8
@@ -260,16 +270,246 @@ int get_hardware_id() {
     //return id;
 }
 
-int main(){
-    
-    // int int_repeat_times = 2;
-    // int int_repeat_count = 0;
-    int current_State = STATE_IDLE; 
+// 根據 Hardware ID 決定腳位
+void init_pins(uint &BUZZER_PIN, uint &LED_PIN, 
+               uint &UART0_TX_PIN, uint &UART0_RX_PIN,
+               uint &UART1_TX_PIN, uint &UART1_RX_PIN)
+{
+    switch(int_hardware_ID)
+    {
+        case 0: case 1: case 2: case 3:
+            BUZZER_PIN    = 16;
+            LED_PIN       = 20;
+            UART0_TX_PIN  = 12;
+            UART0_RX_PIN  = 13;
+            UART1_TX_PIN  = 4;
+            UART1_RX_PIN  = 5;
+            break;
 
-    
-            stdio_init_all();
+        case 4: case 5: case 6:
+            BUZZER_PIN    = 15;
+            LED_PIN       = 11;
+            UART0_TX_PIN  = 16;
+            UART0_RX_PIN  = 17;
+            UART1_TX_PIN  = 4;
+            UART1_RX_PIN  = 5;
+            break;
 
-            // 6. 初始化硬體定址腳位
+        default:
+            break;
+    }
+}
+
+//GPIO與UART的初始化包裝起來
+void init_hardware(uint BUZZER_PIN, uint LED_PIN,
+                   uint UART0_TX_PIN, uint UART0_RX_PIN,
+                   uint UART1_TX_PIN, uint UART1_RX_PIN)
+{
+    // 初始化硬體定址腳位
+    gpio_init(ADDR_PINS[0]);
+    gpio_init(ADDR_PINS[1]);
+    gpio_init(ADDR_PINS[2]);
+    gpio_set_dir(ADDR_PINS[0], GPIO_IN);
+    gpio_set_dir(ADDR_PINS[1], GPIO_IN);
+    gpio_set_dir(ADDR_PINS[2], GPIO_IN);
+    gpio_pull_up(ADDR_PINS[0]);
+    gpio_pull_up(ADDR_PINS[1]);
+    gpio_pull_up(ADDR_PINS[2]);
+
+    // 讀取 Hardware ID
+    sleep_ms(500);
+    int_hardware_ID = get_hardware_id();
+    sleep_ms(500);
+
+    // 初始化 GPIO
+    gpio_init(LED_PIN);
+    gpio_init(BUZZER_PIN);
+    gpio_set_dir(LED_PIN, GPIO_OUT);
+    gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
+
+    // 初始化 UART0
+    uart_init(UART0_FROM_ARDUINO, BAUD_RATE);
+    gpio_set_function(UART0_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(UART0_RX_PIN, GPIO_FUNC_UART);
+
+    // 初始化 UART1
+    uart_init(UART1_COM_PICO, BAUD_RATE);
+    gpio_set_function(UART1_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(UART1_RX_PIN, GPIO_FUNC_UART);
+}
+
+void play_startup_song(uint BUZZER_PIN, uint LED_PIN)
+{
+    gpio_put(LED_PIN, 1);
+    sleep_ms(500);
+
+    switch(int_hardware_ID)
+    {
+        case 0: play_song_by_name("joy_to_the_world_T1", BUZZER_PIN, LED_PIN); break;
+        case 1: play_song_by_name("joy_to_the_world_T2", BUZZER_PIN, LED_PIN); break;
+        case 2: play_song_by_name("joy_to_the_world_B1", BUZZER_PIN, LED_PIN); break;
+        case 3: play_song_by_name("joy_to_the_world_B2", BUZZER_PIN, LED_PIN); break;
+        case 4: play_song_by_name("joy_to_the_world_P1", BUZZER_PIN, LED_PIN); break;
+        case 5: play_song_by_name("joy_to_the_world_P2", BUZZER_PIN, LED_PIN); break;
+        case 6: play_song_by_name("joy_to_the_world_P3", BUZZER_PIN, LED_PIN); break;
+        default: play_song_by_name("mario_die", BUZZER_PIN, LED_PIN); break;
+    }
+}
+
+void handle_idle(char* temp_buffer, size_t &idx, int &current_State, uint LED_PIN)
+{
+    DEBUG_PRINT("現在在%s", STATE_NAME[current_State].c_str());
+    sleep_ms(2000);
+
+    while (true) {
+        if (uart_is_readable(UART0_FROM_ARDUINO)) {
+            char c = uart_getc(UART0_FROM_ARDUINO);
+            if (c == '\n' || c == '\r') {
+                if (idx > 0) {
+                    temp_buffer[idx] = '\0';
+                    idx = 0;
+                    printf("迴圈裡面的buffer是%s\r\n", temp_buffer);
+
+                    if (strcmp(temp_buffer, "PLAY_FLOWER") == 0) {
+                        memset(temp_buffer, 0, 128);
+                        sleep_ms(2000);
+                        current_song = A_UNIQUE_FLOWER_IN_THE_WORLD;
+                        current_State = STATE_PLAY;
+                    } else if (strcmp(temp_buffer, "PLAY_NAME_ENGRAVED") == 0) {
+                        memset(temp_buffer, 0, 128);
+                        sleep_ms(2000);
+                        current_song = YOUR_NAME_ENGRAVED_HEREIN;
+                        current_State = STATE_PLAY;
+                    } else if (strcmp(temp_buffer, "PLAY_DISNEY") == 0) {
+                        memset(temp_buffer, 0, 128);
+                        sleep_ms(2000);
+                        current_song = DISNEY_OPENING;
+                        current_State = STATE_PLAY;
+                    } else if (strcmp(temp_buffer, "PLAY_YOUTH_BLANK") == 0) {
+                        memset(temp_buffer, 0, 128);
+                        sleep_ms(2000);
+                        current_song = LETS_NOT_LEAVE_OUR_YOUTH_BLANK;
+                        current_State = STATE_PLAY;
+                    } else if (strcmp(temp_buffer, "PLAY_DETECTIVE_CONAN") == 0) {
+                        memset(temp_buffer, 0, 128);
+                        sleep_ms(2000);
+                        current_song = DETECTIVE_CONAN;
+                        current_State = STATE_PLAY;
+                    } else if (strcmp(temp_buffer, "DRIVE_CAR") == 0) {
+                        memset(temp_buffer, 0, 128);
+                        sleep_ms(500);
+                        if (int_hardware_ID == 2) {
+                            gpio_put(LED_PIN, 1);
+                            sleep_ms(5000);
+                            gpio_put(LED_PIN, 0);
+                        }
+                        sleep_ms(2000);
+                        current_State = STATE_STOP;
+                    }
+
+                    idx = 0;
+                    break;
+                }
+            } else {
+                if (idx < 127) {
+                    temp_buffer[idx++] = c;
+                }
+            }
+        }
+    }
+}
+
+void handle_play(uint BUZZER_PIN, uint LED_PIN, int &current_State)
+{
+    DEBUG_PRINT("現在在%s", STATE_NAME[current_State].c_str());
+    sleep_ms(2000);
+
+    switch(current_song)
+    {
+        case A_UNIQUE_FLOWER_IN_THE_WORLD:
+            switch(int_hardware_ID) {
+                case 0: case 6: play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T1", BUZZER_PIN, LED_PIN); break;
+                case 1: case 2: case 4: play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T2", BUZZER_PIN, LED_PIN); break;
+                case 3: case 5: play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_B1", BUZZER_PIN, LED_PIN); break;
+            }
+            break;
+
+        case YOUR_NAME_ENGRAVED_HEREIN:
+            DEBUG_PRINT("現在準備播放刻在我心底的名字");
+            switch(int_hardware_ID) {
+                case 0: case 4: play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_00", BUZZER_PIN, LED_PIN); break;
+                case 1: play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_01", BUZZER_PIN, LED_PIN); break;
+                case 2: play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_02", BUZZER_PIN, LED_PIN); break;
+                case 3: play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_03", BUZZER_PIN, LED_PIN); break;
+                case 5: play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_04", BUZZER_PIN, LED_PIN); break;
+                case 6: play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_00", BUZZER_PIN, LED_PIN); break;
+            }
+            break;
+
+        case LETS_NOT_LEAVE_OUR_YOUTH_BLANK:
+            switch(int_hardware_ID) {
+                case 0: play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_00", BUZZER_PIN, LED_PIN); break;
+                case 1: play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_01", BUZZER_PIN, LED_PIN); break;
+                case 2: play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_02", BUZZER_PIN, LED_PIN); break;
+                case 3: play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_03", BUZZER_PIN, LED_PIN); break;
+                case 4: play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_04", BUZZER_PIN, LED_PIN); break;
+                case 5: play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_05", BUZZER_PIN, LED_PIN); break;
+                case 6: play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_06", BUZZER_PIN, LED_PIN); break;
+            }
+            break;
+
+        case DISNEY_OPENING:
+            DEBUG_PRINT("現在準備播放迪士尼之歌");
+            switch(int_hardware_ID) {
+                case 0: case 1: case 2: play_song_by_name("disney_star_T1", BUZZER_PIN, LED_PIN); break;
+                case 3: play_song_by_name("disney_star_B1", BUZZER_PIN, LED_PIN); break;
+                case 4: case 6: play_song_by_name("disney_star_T2", BUZZER_PIN, LED_PIN); break;
+                case 5: play_song_by_name("disney_star_B2", BUZZER_PIN, LED_PIN); break;
+            }
+            break;
+
+        case DETECTIVE_CONAN:
+            DEBUG_PRINT("現在準備播放名偵探柯南");
+            sleep_ms(500);
+            switch(int_hardware_ID) {
+                case 0: play_song_by_name("DETECTIVE_CONAN_00", BUZZER_PIN, LED_PIN); break;
+                case 1: play_song_by_name("DETECTIVE_CONAN_01", BUZZER_PIN, LED_PIN); break;
+            }
+            break;
+
+        case DORAEMON:
+            play_song_by_name("doraemon", BUZZER_PIN, LED_PIN);
+            break;
+
+        default:
+            play_song_by_name("mario_die", BUZZER_PIN, LED_PIN);
+            break;
+    }
+
+    current_State = STATE_STOP;
+}
+
+void handle_stop(char* temp_buffer, size_t &idx, int &current_State)
+{
+    DEBUG_PRINT("現在在%s", STATE_NAME[current_State].c_str());
+    sleep_ms(2000);
+
+    memset(temp_buffer, 0, 128);
+    idx = 0;
+
+    if(int_hardware_ID == 0)
+    {
+        uart_puts(UART0_FROM_ARDUINO, "PLAY_DONE\n");
+        DEBUG_PRINT("我送出訊號給Arduino囉！");
+        DEBUG_PRINT("要回去STATE_IDLE了，再會～");
+    }
+
+    current_State = STATE_IDLE;
+}
+
+void init_addr_pins()
+{
+              // 6. 初始化硬體定址腳位
             // 因為有三片要逆向，必須用硬體定址的結果來決定腳位
             gpio_init(ADDR_PINS[0]);
             gpio_init(ADDR_PINS[1]);
@@ -289,150 +529,48 @@ int main(){
             sleep_ms(500);
             int_hardware_ID = get_hardware_id();
 
-            //printf("這一個pico的hard id是:%d\r\n",int_hardware_ID);
+            
             sleep_ms(500);
 
-            //先作設定，接下來的switch會再修正
-            uint BUZZER_PIN = 16;
-            uint LED_PIN= 20;
-            uint UART0_TX_PIN = 12;
-            uint UART0_RX_PIN = 13;
-            uint UART1_TX_PIN = 0;
-            uint UART1_RX_PIN = 1;
-
-            switch(int_hardware_ID)
-            {
-                case 0:
-                case 1:
-                case 2:
-                case 3:
-                    // 蜂鳴器
-                    BUZZER_PIN = 16;
-                    // LED 
-                    LED_PIN= 20;
-
-                    UART0_TX_PIN = 12;  // 實體 Pin 16，負責發送給 Nano
-                    UART0_RX_PIN = 13;  // 實體 Pin 17  負責接收自 Nano
-                    UART1_TX_PIN = 4;
-                    UART1_RX_PIN = 5;
-                break;
-
-                case 4:
-                case 5:
-                case 6:
-                    // 蜂鳴器
-                    BUZZER_PIN = 15;
-                    // LED 
-                    LED_PIN= 11;
-
-                    UART0_TX_PIN = 16;  // 實體 Pin 21，負責發送給 Nano
-                    UART0_RX_PIN = 17;  // 實體 Pin 22，負責接收自 Nano
-                    UART1_TX_PIN = 4;
-                    UART1_RX_PIN = 5;
-
-                break;
-
-                default:
-
-                break;
-
-            }
-
-            // 2. 初始化 GPIO
-            gpio_init(LED_PIN);
-            gpio_init(BUZZER_PIN);
-
-            // 3. 設定方向 (LED 是輸出)
-            gpio_set_dir(LED_PIN, GPIO_OUT);
-            
-            // 4. 設定 PWM 功能 (蜂鳴器腳位要切換成 PWM 模式)
-            gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
-
-            
-
-            // 5. 初始化 UART0 
-            uart_init(UART0_FROM_ARDUINO, BAUD_RATE);
-            gpio_set_function(UART0_TX_PIN, GPIO_FUNC_UART);
-            gpio_set_function(UART0_RX_PIN, GPIO_FUNC_UART);
-
-            //初始化 UART1 
-            uart_init(UART1_COM_PICO, BAUD_RATE);
-            gpio_set_function(UART1_TX_PIN, GPIO_FUNC_UART);
-            gpio_set_function(UART1_RX_PIN, GPIO_FUNC_UART);
 
 
-             //sleep_ms(2000);
-            
+}
 
-            //printf("Pico 接收端已就緒，等待 Arduino 訊號...\n");
+int main(){
+    
+    int current_State = STATE_IDLE; 
+
+    
+            stdio_init_all();
+
+            init_addr_pins();
+
+            init_hardware(BUZZER_PIN, LED_PIN, UART0_TX_PIN, UART0_RX_PIN, UART1_TX_PIN, UART1_RX_PIN);
+            init_pins(BUZZER_PIN, LED_PIN, UART0_TX_PIN, UART0_RX_PIN, UART1_TX_PIN, UART1_RX_PIN);
 
             char temp_buffer[128];
             char temp_buffer2[10];
-            int idx = 0;
-            int idx2 = 0;
+            size_t idx = 0;
+            size_t idx2 = 0;
 
               sleep_ms(2000);
             
 
             
-            //printf("LED要亮起來了唷\r\n");
+            
             gpio_put(LED_PIN, 1);
             sleep_ms(500);
             
-            //printf("要開始播音樂了\r\n");
+            
             //sleep_ms(500); //要切換到介面需要一點時間
 
 
-            //printf("初始化完成的音樂\r\n");
+            
         
             //初始化成功的聲音
-            switch(int_hardware_ID)
-            {
-                case 0:
-                    play_song_by_name("joy_to_the_world_T1", BUZZER_PIN, LED_PIN);
-
-                    break;
-                
-                case 1:
-                    play_song_by_name("joy_to_the_world_T2", BUZZER_PIN, LED_PIN);
-
-                    break;
-
-                case 2:
-                    play_song_by_name("joy_to_the_world_B1", BUZZER_PIN, LED_PIN);
-
-                    break;
-
-                case 3:
-                    play_song_by_name("joy_to_the_world_B2", BUZZER_PIN, LED_PIN);
-
-                    break;
-
-                case 4:
-                    play_song_by_name("joy_to_the_world_P1", BUZZER_PIN, LED_PIN);
-                    break;
-
-                case 5:
-                    play_song_by_name("joy_to_the_world_P2", BUZZER_PIN, LED_PIN);
-                    break;
-
-                case 6:
-                    play_song_by_name("joy_to_the_world_P3", BUZZER_PIN, LED_PIN);
-                    break;
-
-                default:
-                    play_song_by_name("mario_die", BUZZER_PIN, LED_PIN);
-
-                    break;
-            }
+            play_startup_song(BUZZER_PIN, LED_PIN);
 
             bool bool_shake_hand;
-            bool bReady_0=false;
-            bool bReady_1=false;
-            bool bReady_2=false;
-            bool bReady_3=false;
-            bool bReady_4=false;
-            bool bReady_5=false;
             bool bReady_6=false;
 
             DEBUG_PRINT("現在要進入迴圈了");
@@ -442,94 +580,13 @@ int main(){
                     {
                         switch(current_State)
                         {
-                            case STATE_IDLE:
-
-                                
-
-                                DEBUG_PRINT("現在在%d\r\n",STATE_NAME[current_State].c_str());
-                                sleep_ms(2000);
-
-                                while (true) {
-                                        // 檢查 UART 是否有資料可讀
-                                        if (uart_is_readable(UART0_FROM_ARDUINO
-                                    )) {
-                                            char c = uart_getc(UART0_FROM_ARDUINO
-                                        );
-                                            //下面這一行可以監控由Arduino Nano送來的編號
-                                            //printf("現在384的buffer是%s\r\n",buffer); 
-                                            // 判斷是否為換行符號 (表示指令結束)
-                                            if (c == '\n' || c == '\r') {
-                                                if (idx > 0) {
-                                                    temp_buffer[idx] = '\0'; // 結束字串
-                                                    //printf(">>> Pico 成功接收指令: [%s]\n", buffer);
-                                                    int current_idx = idx; 
-                                                    idx = 0;
-                                                    //下面這一行可以監控由Arduino Nano送來的編號
-                                                    printf("迴圈裡面的buffer是%s\r\n",temp_buffer);       
-                                                    if(strcmp(temp_buffer, "PLAY_FLOWER") == 0)
-                                                    {
-                                                        //printf("要去STATE_PLAY啦～\r\n");
-                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
-                                                        sleep_ms(2000);
-                                                        current_song = A_UNIQUE_FLOWER_IN_THE_WORLD;
-                                                        current_State = STATE_PLAY;
-                                                    }
-                                                    else if (strcmp(temp_buffer, "PLAY_NAME_ENGRAVED") == 0)
-                                                    {
-                                                        /* code */
-                                                        //DEBUG_PRINT("播放 刻在我心底的名字");
-                                                        //printf("要去STATE_PLAY啦～\r\n");
-                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
-                                                        sleep_ms(2000);
-                                                        current_song = YOUR_NAME_ENGRAVED_HEREIN;
-                                                        current_State = STATE_PLAY;
-                                                    }
-                                                    else if (strcmp(temp_buffer, "PLAY_DISNEY") == 0)
-                                                    {
-                                                        /* code */
-                                                        //printf("要去STATE_PLAY啦～\r\n");
-                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
-                                                        sleep_ms(2000);
-                                                        current_song = DISNEY_OPENING;
-                                                        current_State = STATE_PLAY;
-                                                    }
-                                                     else if (strcmp(temp_buffer, "PLAY_YOUTH_BLANK") == 0)
-                                                    {
-                                                        /* code */
-                                                        //printf("要去STATE_PLAY啦～\r\n");
-                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
-                                                        sleep_ms(2000);
-                                                        current_song = LETS_NOT_LEAVE_OUR_YOUTH_BLANK;
-                                                        current_State = STATE_PLAY;
-                                                    }
-                                                     else if (strcmp(temp_buffer, "TEST_HAND") == 0)
-                                                    {
-                                                        memset(temp_buffer, 0, sizeof(temp_buffer)); 
-                                                        sleep_ms(2000);
-                                                        current_song = TEST_HAND;
-                                                        current_State = STATE_TEST_HAND;
-
-                                                    }
-                                                    
-                                                    idx = 0;
-                                                    
-                                                    break;
-                                                    
-                                                }
-                                            } else {
-                                                if (idx < sizeof(temp_buffer) - 1) {
-                                                    temp_buffer[idx++] = c;
-                                                }
-                                            }
-                                        }
-                                }
-
-
-                        
+                         case STATE_IDLE:
+                                  handle_idle(temp_buffer, idx, current_State, LED_PIN);
                             break;
 
                          case STATE_TEST_HAND:
-
+                            // TODO: 單節點控制機制，尚未實作
+                            // 預計功能：感應卡片後只觸發指定 ID 的 Pico
                             bool_shake_hand = true;
 
                             //從pico6開始
@@ -555,63 +612,9 @@ int main(){
                                                 if (idx2 > 0) {
                                                     temp_buffer2[idx2] = '\0'; // 結束字串
                                                     
-                                                    int current_idx2 = idx2; 
+                                                    
                                                     idx2 = 0;     
-                                                    if(strcmp(temp_buffer2, "PICO6 OK") == 0 )
-                                                    {
-                                                        bReady_5 = true;
-                                                        DEBUG_PRINT("我是5號\r\n");
-                                                        uart_puts(UART1_COM_PICO, "PICO5 OK\n"); //輸出
-                                                        DEBUG_PRINT("我送出訊號囉！\r\n");
-                                                        DEBUG_PRINT("要去STATE_READY了，再會～\r\n");
-                                                        bool_shake_hand = false;
-                                                        //current_State = STATE_READY;
 
-                                                    }
-                                                    else if(strcmp(temp_buffer2, "PICO5 OK") == 0)
-                                                    {
-                                                         bReady_4 = true;
-                                                        DEBUG_PRINT("我是4號\r\n");
-                                                        uart_puts(UART1_COM_PICO, "PICO4 OK\n"); //輸出
-                                                        DEBUG_PRINT("我送出訊號囉！\r\n");
-                                                        DEBUG_PRINT("要去STATE_READY了，再會～\r\n");
-                                                        bool_shake_hand = false;
-                                                        //current_State = STATE_READY;
-
-                                                    }
-                                                    else if(strcmp(temp_buffer2, "PICO4 OK") == 0)
-                                                    {
-                                                        bReady_3 = true;
-                                                        DEBUG_PRINT("我是3號\r\n");
-                                                        uart_puts(UART1_COM_PICO, "PICO3 OK\n"); //輸出
-                                                        DEBUG_PRINT("我送出訊號囉！\r\n");
-                                                        DEBUG_PRINT("要去STATE_READY了，再會～\r\n");
-                                                        bool_shake_hand = false;
-                                                        //current_State = STATE_READY;
-
-                                                    }
-                                                    else if(strcmp(temp_buffer2, "PICO3 OK") == 0)
-                                                    {
-                                                        bReady_2 = true;
-                                                        DEBUG_PRINT("我是2號\r\n");
-                                                        uart_puts(UART1_COM_PICO, "PICO2 OK\n"); //輸出
-                                                        DEBUG_PRINT("我送出訊號囉！\r\n");
-                                                        DEBUG_PRINT("要去STATE_READY了，再會～\r\n");
-                                                        bool_shake_hand = false;
-                                                        //current_State = STATE_READY;
-
-                                                    }
-                                                    else if(strcmp(temp_buffer2, "PICO2 OK") == 0)
-                                                    {
-                                                        bReady_1 = true;
-                                                        DEBUG_PRINT("我是1號\r\n");
-                                                        uart_puts(UART0_FROM_ARDUINO, "PICO1 OK\n"); //輸出
-                                                        DEBUG_PRINT("我送出訊號給arduino囉！\r\n");
-                                                        DEBUG_PRINT("要去STATE_READY了，再會～\r\n");
-                                                        bool_shake_hand = false;
-                                                        //current_State = STATE_READY;
-
-                                                    }
                                                 }
                                                     idx2 = 0; // 不管比對成功與否，收到換行，index就要歸零
                                                     
@@ -635,282 +638,18 @@ int main(){
 
                             
                         case STATE_READY:
-
-                            DEBUG_PRINT("現在在%d\r\n",STATE_NAME[current_State].c_str());
-
+                            DEBUG_PRINT("現在在%s\r\n",STATE_NAME[current_State].c_str());
                             current_State = STATE_PLAY;
-
                             break;
 
                         case STATE_PLAY:
-
-                            DEBUG_PRINT("現在在%d\r\n",STATE_NAME[current_State].c_str());
-                            //play_song_by_name("joy_to_the_world_B1", BUZZER_PIN, LED_PIN);
-
-                            DEBUG_PRINT("現在在%d\r\n",STATE_NAME[current_State].c_str());
-
-                            sleep_ms(2000);
-
-                            switch(current_song)
-                            {
-                                case A_UNIQUE_FLOWER_IN_THE_WORLD: //點播 世界上唯一的花
-                                    switch(int_hardware_ID)
-                                    {
-                                        case 0:
-                                        case 6:
-
-                                            play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T1", BUZZER_PIN, LED_PIN);
-                                            
-                                            break;
-
-                                        case 1:
-                                        case 2:
-                                        case 4:
-                                            
-                                            play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T2", BUZZER_PIN, LED_PIN);
-
-                                            break;
-
-                                       
-
-                                            play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_T2", BUZZER_PIN, LED_PIN);
-
-                                        break;
-
-
-
-                                        case 3:
-                                        case 5:
-
-                                            play_song_by_name("A_UNIQUE_FLOWER_IN_THE_WORLD_B1", BUZZER_PIN, LED_PIN);
-
-                                        break;
-
-
-
-                                    }
-
-
-                                    break;
-                            
-                                case YOUR_NAME_ENGRAVED_HEREIN: //點播 刻在我心底的名字
-
-                                    DEBUG_PRINT("現在準備播放刻在我心底的名字");
-
-                                     switch(int_hardware_ID)
-                                    {
-
-                                        case 0:
-                                        case 4:
-                                        
-                                        
-                                        
-                                       
-
-
-                                            play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_00", BUZZER_PIN, LED_PIN);
-                                            
-                                            break;    
-                                        case 1:
-                                        
-
-                                            play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_01", BUZZER_PIN, LED_PIN);
-                                            
-                                            break;   
-                                        case 2:
-
-                                            play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_02", BUZZER_PIN, LED_PIN);
-                                            
-                                            break;   
-                                        
-                                        case 3:
-
-                                            play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_03", BUZZER_PIN, LED_PIN);
-
-                                        break; 
-
-                                        case 5:
-                                            play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_04", BUZZER_PIN, LED_PIN);
-                                        break; 
-
-                                         case 6:
-                                            play_song_by_name("YOUR_NAME_ENGRAVED_HEREIN_05", BUZZER_PIN, LED_PIN);
-                                        break; 
-
-                                        default:
-
-                                            break;
-                                    }
-
-                                    break;
-                                
-                                case LETS_NOT_LEAVE_OUR_YOUTH_BLANK: //點播 青春不要留白
-
-                                    switch(int_hardware_ID)
-                                    {
-
-                                        case 0:
-
-                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_00", BUZZER_PIN, LED_PIN);
-                                            
-                                            break;
-
-                                        case 1:
-                                            
-                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_01", BUZZER_PIN, LED_PIN);
-
-                                            break;
-
-                                        case 2:
-
-                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_02", BUZZER_PIN, LED_PIN);
-
-                                        break;
-
-
-
-                                        case 3:
-
-                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_03", BUZZER_PIN, LED_PIN);
-
-                                        break;
-
-
-                                        case 4:
-
-                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_04", BUZZER_PIN, LED_PIN);
-
-                                        break;
-
-                                         case 5:
-
-                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_05", BUZZER_PIN, LED_PIN);
-
-                                        break;
-
-                                         case 6:
-
-                                            play_song_by_name("LETS_NOT_LEAVE_OUR_YOUTH_BLANK_06", BUZZER_PIN, LED_PIN);
-
-                                        break;
-
-
-
-
-                                    }
-
-
-
-
-                                    break;
-
-                                case DISNEY_OPENING:
-
-                                    DEBUG_PRINT("現在準備播放迪士尼之歌");
-
-                                    switch(int_hardware_ID)
-                                    {
-                                        case 4:
-                                        case 6:
-
-                                            play_song_by_name("disney_star_T2", BUZZER_PIN, LED_PIN);
-                                            
-                                            break;
-                                        case 0:
-                                        case 1:
-                                        case 2:
-                                        
-                                            
-                                            play_song_by_name("disney_star_T1", BUZZER_PIN, LED_PIN);
-
-                                            break;
-
-                                       
-
-                                            play_song_by_name("disney_star_B1", BUZZER_PIN, LED_PIN);
-
-                                        break;
-
-
-
-                                        case 3:
-                                        case 5:
-
-                                            play_song_by_name("disney_star_B2", BUZZER_PIN, LED_PIN);
-
-                                    }
-
-                                    break;
-
-                                case DORAEMON:
-                                    play_song_by_name("doraemon", BUZZER_PIN, LED_PIN);
-                                    break;
-
-                                default:
-                                    play_song_by_name("mario_die", BUZZER_PIN, LED_PIN);
-
-                                    break;
-                            }
-                            
-                            //sleep_ms(2000);
-                            //printf("要去STATE_STOP啦～\r\n");
-                            //sleep_ms(2000);
-                            current_State = STATE_STOP;
-                            
-
+                            handle_play(BUZZER_PIN, LED_PIN, current_State);
                             break;
-
                        
                         case STATE_STOP:
 
-                            DEBUG_PRINT("現在在%d\r\n",STATE_NAME[current_State].c_str());
-
-                            bool_shake_hand = true;
-                            sleep_ms(2000);
-
-                            memset(temp_buffer, 0, sizeof(temp_buffer)); // 將 buffer 全部填 0
-                            idx = 0; // 重置索引指標
-
-                            if(int_hardware_ID==0)
-                            {
-                                
-                                uart_puts(UART0_FROM_ARDUINO, "PLAY_DONE\n"); //輸出
-                                DEBUG_PRINT("我送出訊號給Arduino囉！\r\n");
-                                DEBUG_PRINT("要回去STATE_IDLE了，再會～\r\n");
-                                //current_song = DORAEMON;
-                                
-                            }
-
-
-                            // while (true) {
-                            //     // 餵看門狗
-                            //     tight_loop_contents(); 
-                            //     // 讓程式永遠不會回到 IDLE，除非手動按 Reset
-                            // }
-
-                            // DEBUG_PRINT("我是6號\r\n");
-                            // DEBUG_PRINT("要取消ready狀態囉\r\n");
-                            // bReady_6 = false;
-                            // if(int_repeat_count<int_repeat_times)
-                            // {
-                                //printf("現在在%d\r\n",static_cast<int>(current_State));
-                                //sleep_ms(2000);
-                                //printf("要去STATE_IDLE啦～\r\n");
-                                //sleep_ms(2000);
-
-                                //current_State = STATE_IDLE;  //先暫時關閉
-                            // }
-                            // else
-                            // {
-                            //     sleep_ms(2000);
-                            //     printf("已達到重播次數啦～再見囉\r\n");
-                            //     return 0;
-
-                            // }
-
-                            current_State = STATE_IDLE;
-
-                        break;
+                            handle_stop(temp_buffer, idx, current_State);
+                            break;
 
                         default:
 
